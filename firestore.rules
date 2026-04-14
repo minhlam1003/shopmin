@@ -1,0 +1,187 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: products
+    // Fields:
+    //   - type: string (required)
+    //   - category: string (required)
+    //   - code: string (required)
+    //   - name: string (required)
+    //   - brand: string
+    //   - sellPrice: number (required)
+    //   - buyPrice: number (required)
+    //   - stockLevel: number (required)
+    //   - unit: string (required)
+    //   - images: string
+    //
+    // Collection: customers
+    // Fields:
+    //   - name: string (required)
+    //   - phone: string
+    //   - address: string
+    //   - currentDebt: number (required)
+    //
+    // Collection: orders
+    // Fields:
+    //   - orderCode: string (required)
+    //   - customerId: string (required)
+    //   - customerName: string
+    //   - totalAmount: number (required)
+    //   - status: string (paid, debt)
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: orders/{orderId}/details
+    // Fields:
+    //   - orderId: string (required)
+    //   - productId: string (required)
+    //   - productName: string
+    //   - quantity: number (required, > 0)
+    //   - unitPrice: number (required)
+    //   - subtotal: number (required)
+    //
+    // ===============================================================
+
+    // Collection: settings
+    // Fields:
+    //   - storeName: string
+    //   - phone: string
+    //   - address: string
+    //   - website: string
+    //   - logoUrl: string
+    //   - invoiceHeader: string
+    //   - invoiceFooter: string
+    //   - adminName: string
+    //   - adminEmail: string
+    //   - bankName: string
+    //   - bankAccount: string
+    //   - bankOwner: string
+    //   - updatedAt: timestamp
+    //
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+             (get(/databases/$(database)/documents/users/$(request.auth.token.email.replace('\\.', '_'))).data.role == 'admin' ||
+              (request.auth.token.email == "lamxtrai2k1@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isStaff() {
+      return isAuthenticated() && 
+             (get(/databases/$(database)/documents/users/$(request.auth.token.email.replace('\\.', '_'))).data.role in ['admin', 'staff'] ||
+              isAdmin());
+    }
+
+    function isValidUser(data) {
+      return data.email is string && 
+             data.role in ['admin', 'staff'];
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidProduct(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() < 500 &&
+             data.code is string &&
+             data.type is string &&
+             data.category is string &&
+             data.unit is string &&
+             data.buyPrice is number && data.buyPrice >= 0 &&
+             data.sellPrice is number && data.sellPrice >= 0 &&
+             data.stockLevel is number;
+    }
+
+    function isValidCustomer(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
+             data.currentDebt is number;
+    }
+
+    function isValidOrder(data) {
+      return data.orderCode is string &&
+             data.customerId is string &&
+             data.totalAmount is number && data.totalAmount >= 0 &&
+             data.status in ['paid', 'debt'] &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidOrderDetail(data) {
+      return data.orderId is string &&
+             data.productId is string &&
+             data.quantity is number && data.quantity > 0 &&
+             data.unitPrice is number &&
+             data.subtotal is number;
+    }
+
+    function isValidSettings(data) {
+      return (data.storeName is string || !('storeName' in data)) &&
+             (data.phone is string || !('phone' in data)) &&
+             (data.address is string || !('address' in data)) &&
+             (data.website is string || !('website' in data)) &&
+             (data.logoUrl is string || !('logoUrl' in data)) &&
+             (data.invoiceHeader is string || !('invoiceHeader' in data)) &&
+             (data.invoiceFooter is string || !('invoiceFooter' in data)) &&
+             (data.adminName is string || !('adminName' in data)) &&
+             (data.adminEmail is string || !('adminEmail' in data)) &&
+             (data.bankName is string || !('bankName' in data)) &&
+             (data.bankAccount is string || !('bankAccount' in data)) &&
+             (data.bankOwner is string || !('bankOwner' in data));
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /products/{productId} {
+      allow read: if true; // Allow public to see products
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /customers/{customerId} {
+      allow read: if true; // TEMPORARY: Allow public read for UI development
+      allow create, update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
+    match /orders/{orderId} {
+      allow read: if true; // TEMPORARY: Allow public read for UI development
+      allow create, update: if isStaff();
+      allow delete: if isAdmin();
+
+      match /details/{detailId} {
+        allow read: if true; // TEMPORARY: Allow public read for UI development
+        allow create, update: if isStaff();
+        allow delete: if isAdmin();
+      }
+    }
+
+    match /settings/{configId} {
+      allow read: if true; // Allow public to see store info
+      allow write: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAdmin() && isValidUser(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
